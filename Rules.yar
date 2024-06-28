@@ -45,17 +45,13 @@ rule NtQueryObject: AntiDebug {
 }
 
 import "pe"
-rule OutputDebugString: AntiDebug
-{
+rule OutputDebugString: AntiDebug{
 	meta:
 		Author = "Teo-Prats"
 		Description = "Detect OutputDebugstring"
 		Reference = "http://twitter.com/j0sm1"
-
-	condition:
-		pe.imports("kernel32.dll","OutputDebugStringW")
-        or
-        pe.imports("kernel32.dll","OutputDebugStringA")
+	condition:	
+		pe.imports("kernel32.dll","OutputDebugStringA")
 }
 
 rule EventPairHandles: AntiDebug {
@@ -192,9 +188,10 @@ rule ExceptionBased_AntiDebugging {
     meta:
         description = "Detects the use of INT 3 or UD2 instructions for exception-based anti-debugging"
         author = "Teo-Prats"
+        reference ="https://unprotect.it/technique/interrupts/"
     strings:
-        $int3 = { CC }  // Opcode for INT 3
-        $ud2 = { 0F 0B } // Opcode for UD2
+        $int3 = { CC }  
+        $ud2 = { 0F 0B } 
     condition:
         $int3 or $ud2
 }
@@ -204,6 +201,7 @@ rule Detect_Interrupt: AntiDebug {
         description = "Detect Interrupt instruction"
         author = "Unprotect"
         comment = "Experimental rule / the rule can be slow to use"
+        reference ="https://anti-debug.checkpoint.com/techniques/process-memory.html#breakpoints | https://unprotect.it/technique/int3-instruction-scanning/"
     strings:
         $int3 = { CC }
         $intCD = { CD }
@@ -239,7 +237,7 @@ rule GuardPages: AntiDebug {
         $4 ="VirtualProtect" fullword ascii
         $5 ="VirtualFree" fullword ascii
     condition:   
-        2 of them 
+        4 of them 
 }
 
 rule SuspendThread: AntiDebug {
@@ -247,8 +245,7 @@ rule SuspendThread: AntiDebug {
         description = "Detect SuspendThread as anti-debug"
         author = "Teo-Prats"
         comment = "Modified rule from UnProtect"
-        Reference = "https://unprotect.it/technique/suspendthread/"
-        
+        Reference = "https://unprotect.it/technique/suspendthread/"        
     strings:
         $1 = "SuspendThread" fullword ascii
         $2 = "NtSuspendThread" fullword ascii
@@ -358,26 +355,34 @@ rule CheckForTrapFlagException {
         (any of ($or_trap_flag, $bts_trap_flag))
 }
 
-rule CheckForTrapFlagException {
+rule NtYieldExecution_SwitchToThread_AntiDebug
+{
     meta:
-        name = "check for trap flag exception"
+        description = "Detects the use of NtYieldExecution or SwitchToThread for anti-debugging purposes."
         author = "Teo-Prats"
-        comment = "Converted from CAPA to YARA rule"
-        reference = "https://github.com/LordNoteworthy/al-khaser/blob/master/al-khaser/AntiDebug/TrapFlag.cpp | michael.hunhoff@mandiant.com"
+        reference= "https://anti-debug.checkpoint.com/techniques/misc.html"
+
     strings:
-        $pushf = { 9C }
-        $popf = { 9D }
-        $pushfd = { 66 9C }
-        $popfd = { 66 9D }
-        $pushfq = { 48 9C }
-        $popfq = { 48 9D }
-        $or_trap_flag = { 0B 24 ?? 00 01 }
-        $bts_trap_flag = { 0F AB ?? 08 }
+        $nt_yield_execution = "NtYieldExecution"
+        $switch_to_thread = "SwitchToThread"
+        $status_no_yield_performed = { 24 00 00 40 }
 
     condition:
-        (any of ($pushf, $pushfd, $pushfq)) and
-        (any of ($popf, $popfd, $popfq)) and
-        (any of ($or_trap_flag, $bts_trap_flag))
+        
+         $nt_yield_execution or $switch_to_thread or $status_no_yield_performed
+        
+}
+
+rule VirtualAlloc_GetWriteWatch {
+    meta:
+        description = "Detects the use of VirtualAlloc and GetWriteWatch functions"
+        author = "Teo-Prats"
+        reference= "https://anti-debug.checkpoint.com/techniques/misc.html"
+    strings:
+        $virtualalloc = "VirtualAlloc" nocase wide ascii
+        $getwritewatch = "GetWriteWatch" nocase wide ascii
+    condition:
+        any of them
 }
 
 rule CheckForInt3RetAntiDebug {
@@ -394,6 +399,21 @@ rule CheckForInt3RetAntiDebug {
     condition:
         $int3_ret and
         any of ($seh_prologue, $seh_epilogue)
+}
+
+rule DbgPrint_AntiDebug
+{
+    meta:
+        description = "Detects the use of RaiseException with DBG_PRINTEXCEPTION_C for anti-debugging purposes."
+        author = "Teo-Prats"
+        reference ="https://anti-debug.checkpoint.com/techniques/misc.html"
+
+    strings:
+        $raise_exception = "RaiseException"
+        $dbg_printexception_c = { 06 00 01 40 }  // Hexadecimal representation of DBG_PRINTEXCEPTION_C (0x40010006)
+
+    condition:
+        $raise_exception and $dbg_printexception_c
 }
 
 rule FuncIn {
@@ -438,7 +458,7 @@ rule DetectPEBBeingDebuggedFlagCheck {
         name = "Detect PEB BeingDebugged Flag Check"
         description = "Detects reading the BeingDebugged flag from the PEB for anti-debugging"
         author = "Teo-Prats"
-        reference = "https://anti-debug.checkpoint.com/techniques/debug-flags.html#using-win32-api-ntqueryinformationprocess"
+        reference = "https://anti-debug.checkpoint.com/techniques/debug-flags.html#manual-checks-peb-beingdebugged-flag"
     strings:
         // For 32-bit
         $fsdword = { 64 A1 30 00 00 00 }  // MOV EAX, FS:[30h]
@@ -456,7 +476,7 @@ rule DetectHeapTailAndFreeCheckingFlags {
     meta:
         description = "Detects the presence of 0xABABABAB and 0xFEEEFEEE sequences indicative of heap tail and free checking flags"
         author = "Teo-Prats"
-        reference = "https://anti-debug.checkpoint.com/techniques/debug-flags.html#manual-checks-peb-beingdebugged-flag"
+        reference = "o	https://anti-debug.checkpoint.com/techniques/debug-flags.html#manual-checks-heap-protection"
 
     strings:
         $heap_tail_checking_32 = { AB AB AB AB AB AB AB AB }  // 0xABABABAB twice for 32-bit
@@ -467,11 +487,24 @@ rule DetectHeapTailAndFreeCheckingFlags {
         any of ($heap_tail_checking_32, $heap_tail_checking_64, $heap_free_checking)
 }
 
-rule detect_OpenProcess_csrss_debugging {
+rule detect_desktop_switching {
+    meta:
+        description = "Detects potential desktop switching to evade debugging"
+        author = "TeoPrats"
+        reference= "https://anti-debug.checkpoint.com/techniques/interactive.html"
+    strings:
+        $desktop_check = "SwitchDesktop"
+        $desktop_switch_api = "user32.dll"
+        $desktop_event_check = /[\x10-\x1F]\x00\x00\x00..\x00\x00\x00\x00..\x00\x00\x00\x00\x00/
+    condition:
+        any of ($desktop_check, $desktop_switch_api) and $desktop_event_check
+}
+
+rule detect_OpenProcess{
     meta:
         description = "Detects calls to OpenProcess on csrss.exe potentially for debugging detection"
         author = "Teo-Prats"
-        reference = ""
+        reference = "https://anti-debug.checkpoint.com/techniques/object-handles.html#openprocess"
     strings:
         $openProcess = "OpenProcess" wide ascii
         $csrss = "csrss.exe"
@@ -479,11 +512,11 @@ rule detect_OpenProcess_csrss_debugging {
         all of ($openProcess, $csrss)
 }
 
-rule DetectExclusiveOpenProcessFile {
+rule DetectCreateFile {
     meta:
         description = "Detects the use of CreateFileW/CreateFileA to exclusively open the process file to detect debuggers"
         author = "Teo-Prats"
-        reference = "https://anti-debug.checkpoint.com/techniques/object-handles.html"
+        reference = "https://anti-debug.checkpoint.com/techniques/object-handles.html#createfile"
 
     strings:
         $CreateFileW = "CreateFileW"
@@ -498,19 +531,16 @@ rule DetectLoadLibraryCreateFileCheck {
     meta:
         description = "Detects the use of LoadLibraryA/W followed by CreateFileA/W to check for the presence of a debugger"
         author = "Teo-Prats"
-        reference = "https://anti-debug.checkpoint.com/techniques/object-handles.html"
-
+        reference = "https://anti-debug.checkpoint.com/techniques/object-handles.html#loadlibrary"
     strings:
         $LoadLibraryA = "LoadLibraryA"
         $LoadLibraryW = "LoadLibraryW"
         $CreateFileA = "CreateFileA"
         $CreateFileW = "CreateFileW"
-
     condition:
         ($LoadLibraryA and $CreateFileA)
          or 
-        ($LoadLibraryW and $CreateFileW)
-          
+        ($LoadLibraryW and $CreateFileW)   
 }
 
 rule DetectRaiseExceptionDebuggerCheck {
@@ -544,28 +574,64 @@ rule DetectControlFlowHidingWithExceptions {
     condition:
         ($AddVectoredExceptionHandler and $RaiseException) or
         ($SetUnhandledExceptionFilter and $RaiseException) or
-        ($try and $except and $RaiseException)
-        
+        ($try and $except and $RaiseException)       
 }
 
-rule DetectZwGetTickCountAndKUSER_SHARED_DATA {
+rule DetectZwGetTickCount{
     meta:
         description = "Detects the usage of ZwGetTickCount() or direct reads from KUSER_SHARED_DATA as anti-debugging techniques"
         author = "Teo-prats"
         reference = "https://anti-debug.checkpoint.com/techniques/timing.html"
-
     strings:
         $ZwGetTickCount = "ZwGetTickCount"
         $KiGetTickCount = "KiGetTickCount"
         $KUSER_SHARED_DATA = { 7F FE 00 00 }  // Fixed address for KUSER_SHARED_DATA (0x7ffe0000)
-
     condition:
         $ZwGetTickCount or
         $KiGetTickCount or
         $KUSER_SHARED_DATA   
 }
 
-rule DetectTracingTrick {
+rule BlockInput_AntiDebug
+{
+    meta:
+        description = "Detects the use of BlockInput for anti-debugging purposes."
+        author = "TeoPrats"
+        reference= "https://anti-debug.checkpoint.com/techniques/interactive.html"      
+
+    strings:
+        $block_input = "BlockInput"
+
+    condition:
+        any of them
+}
+
+rule Selector_Manipulation_AntiDebug
+{
+    meta:
+        description = "Detects the use of selector manipulation for anti-debugging purposes."
+        author = "Teo-Prats"
+        reference="https://anti-debug.checkpoint.com/techniques/misc.html"
+
+    strings:
+        $xor_eax_eax = { 31 C0 }
+        $push_fs = { 0F A0 }
+        $pop_ds = { 1F }
+        $xchg_eax_cl = { 86 08 }
+        $int3 = { CC }
+        $push_offset = { 68 ?? ?? ?? ?? }
+        $pop_gs = { 0F A9 }
+        $mov_fs_eax = { 64 89 20 }
+        $cmp_al_3 = { 3C 03 }
+        $je = { 74 ?? }
+
+    condition:
+        all of ($xor_eax_eax, $push_fs, $pop_ds, $xchg_eax_cl) or
+        all of ($push_offset, $int3, $pop_gs, $mov_fs_eax, $cmp_al_3, $je)
+        
+}
+
+rule StackSegmentRegister {
     meta:
         description = "Detects the anti-debugging technique that checks for the Trap Flag by using push ss, pop ss, and pushf instructions"
         author = "Teo-Prats"
@@ -597,21 +663,18 @@ rule Self_Debugging_Detection
         description = "Detects the use of self-debugging techniques in a binary."
         author = "Teo-Prats"
         reference = "https://anti-debug.checkpoint.com/techniques/interactive.html#self-debugging"        
-
     strings:
         $debug_active_process = { 44 65 62 75 67 41 63 74 69 76 65 50 72 6F 63 65 73 73 }    // "DebugActiveProcess"
         $create_event_w = { 43 72 65 61 74 65 45 76 65 6E 74 57 }                            // "CreateEventW"
         $get_module_file_name_w = { 47 65 74 4D 6F 64 75 6C 65 46 69 6C 65 4E 61 6D 65 57 } // "GetModuleFileNameW"
         $is_debugged_function = { 49 73 44 65 62 75 67 67 65 64 }                           // "IsDebugged"
         $enable_debug_privilege = { 45 6E 61 62 6C 65 44 65 62 75 67 50 72 69 76 69 6C 65 67 65 } // "EnableDebugPrivilege"
-
     condition:
        any of($debug_active_process,
         $create_event_w,
         $get_module_file_name_w,
         $is_debugged_function,
-        $enable_debug_privilege)
-        
+        $enable_debug_privilege)     
 }
 
 rule GenerateConsoleCtrlEvent_AntiDebug
@@ -620,118 +683,27 @@ rule GenerateConsoleCtrlEvent_AntiDebug
         description = "Detects the use of GenerateConsoleCtrlEvent for anti-debugging purposes."
         author = "Teo-Prats"
         reference = "https://anti-debug.checkpoint.com/techniques/interactive.html"
-
     strings:
         $generate_console_ctrl_event = { 47 65 6E 65 72 61 74 65 43 6F 6E 73 6F 6C 65 43 74 72 6C 45 76 65 6E 74 }  // "GenerateConsoleCtrlEvent"
         $dbg_control_c = { 44 42 47 5F 43 4F 4E 54 52 4F 4C 5F 43 }  // "DBG_CONTROL_C"
         $add_vectored_exception_handler = { 41 64 64 56 65 63 74 6F 72 65 64 45 78 63 65 70 74 69 6F 6E 48 61 6E 64 6C 65 72 }  // "AddVectoredExceptionHandler"
         $set_console_ctrl_handler = { 53 65 74 43 6F 6E 73 6F 6C 65 43 74 72 6C 48 61 6E 64 6C 65 72 }  // "SetConsoleCtrlHandler"
         $remove_vectored_exception_handler = { 52 65 6D 6F 76 65 56 65 63 74 6F 72 65 64 45 78 63 65 70 74 69 6F 6E 48 61 6E 64 6C 65 72 }  // "RemoveVectoredExceptionHandler"
-
     condition:
         $generate_console_ctrl_event or
-        $dbg_control_c or
-        $add_vectored_exception_handler or
-        $set_console_ctrl_handler or
-        $remove_vectored_exception_handler
-        
+        $dbg_control_c      
 }
 
-rule BlockInput_AntiDebug
-{
-    meta:
-        description = "Detects the use of BlockInput for anti-debugging purposes."
-        author = "TeoPrats"
-        reference= "https://anti-debug.checkpoint.com/techniques/interactive.html"      
 
-    strings:
-        $block_input = "BlockInput"
 
-    condition:
-        any of them
-}
 
-rule detect_desktop_switching {
-    meta:
-        description = "Detects potential desktop switching to evade debugging"
-        author = "TeoPrats"
-        reference= "https://anti-debug.checkpoint.com/techniques/interactive.html"
-    strings:
-        $desktop_check = "SwitchDesktop"
-        $desktop_switch_api = "user32.dll"
-        $desktop_event_check = /[\x10-\x1F]\x00\x00\x00..\x00\x00\x00\x00..\x00\x00\x00\x00\x00/
-    condition:
-        any of ($desktop_check, $desktop_switch_api) and $desktop_event_check
-}
 
-rule Selector_Manipulation_AntiDebug
-{
-    meta:
-        description = "Detects the use of selector manipulation for anti-debugging purposes."
-        author = "Teo-Prats"
-        reference="https://anti-debug.checkpoint.com/techniques/misc.html"
 
-    strings:
-        $xor_eax_eax = { 31 C0 }
-        $push_fs = { 0F A0 }
-        $pop_ds = { 1F }
-        $xchg_eax_cl = { 86 08 }
-        $int3 = { CC }
-        $push_offset = { 68 ?? ?? ?? ?? }
-        $pop_gs = { 0F A9 }
-        $mov_fs_eax = { 64 89 20 }
-        $cmp_al_3 = { 3C 03 }
-        $je = { 74 ?? }
 
-    condition:
-        all of ($xor_eax_eax, $push_fs, $pop_ds, $xchg_eax_cl) or
-        all of ($push_offset, $int3, $pop_gs, $mov_fs_eax, $cmp_al_3, $je)
-        
-}
 
-rule DbgPrint_AntiDebug
-{
-    meta:
-        description = "Detects the use of RaiseException with DBG_PRINTEXCEPTION_C for anti-debugging purposes."
-        author = "Teo-Prats"
-        reference ="https://anti-debug.checkpoint.com/techniques/misc.html"
 
-    strings:
-        $raise_exception = "RaiseException"
-        $dbg_printexception_c = { 06 00 01 40 }  // Hexadecimal representation of DBG_PRINTEXCEPTION_C (0x40010006)
 
-    condition:
-        $raise_exception and $dbg_printexception_c
-}
 
-rule NtYieldExecution_SwitchToThread_AntiDebug
-{
-    meta:
-        description = "Detects the use of NtYieldExecution or SwitchToThread for anti-debugging purposes."
-        author = "Teo-Prats"
-        reference= "https://anti-debug.checkpoint.com/techniques/misc.html"
 
-    strings:
-        $nt_yield_execution = "NtYieldExecution"
-        $switch_to_thread = "SwitchToThread"
-        $status_no_yield_performed = { 24 00 00 40 }
-
-    condition:
-        
-         $nt_yield_execution or $switch_to_thread or $status_no_yield_performed
-        
-}
-
-rule Detect_VirtualAlloc_GetWriteWatch {
-    meta:
-        description = "Detects the use of VirtualAlloc and GetWriteWatch functions"
-        author = "Teo-Prats"
-        reference= "https://anti-debug.checkpoint.com/techniques/misc.html"
-    strings:
-        $virtualalloc = "VirtualAlloc" nocase wide ascii
-        $getwritewatch = "GetWriteWatch" nocase wide ascii
-    condition:
-        any of them
-}
 
 
